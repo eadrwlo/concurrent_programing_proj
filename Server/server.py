@@ -6,6 +6,7 @@ import threading
 import concurrent.futures
 import queue
 import csv
+import time
 
 ports = [50001, 50002, 50003, 50004, 50005]
 reservedPorts = []
@@ -22,23 +23,23 @@ def getFreePortForTransmission():
    return selectedPort
 
 class Receiver:
-   
-   def receive(self, queue, event, lock):
-      print ('Receiver waiting for connections...')
+   def receive(self, queue, event, lock, id):
+      print ('Receiver ID= ', id, 'waiting for connections...')
       while not event.is_set():
          if not queue.empty():
             dataObject = queue.get()
             print ('From queue ', dataObject)
             port = dataObject["port"]                    
-            s = socket.socket()           
+            s = socket.socket()
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             host = "127.0.0.1"
             s.bind((host, port))           
             s.listen(5)
             conn, addr = s.accept()  
-            print ('Receiver Got connection from', addr, ' on port ', port)
-            data = conn.recv(1024)
-            dataObject = json.loads(data.decode('utf-8'))
-            print (dataObject)
+            print ('Receiver ID= ', id, 'Got connection from', addr, ' on port ', port)
+            #data = conn.recv(1024)
+            #dataObject = json.loads(data.decode('utf-8'))
+            #print (dataObject)
             fileName = dataObject["file_name"]
             with open(fileName, 'wb') as f:
                print ('file opened')
@@ -58,44 +59,75 @@ class Receiver:
                reservedPorts.remove(port)
                usersAndFiles[dataObject["client_name"]].append(fileName)
                print("Appended")
-               print(usersAndFiles)
+               #dbUpdater()
                
 
 def dispatcher(queue, event):
+   s = socket.socket()
+   s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+   host = "127.0.0.1"
+   port = 50000
+   s.bind((host, port))
    while not event.is_set():
       print ('Server waiting for connections...')
-      print(usersAndFiles)
-      port = 50000                    
-      s = socket.socket()
-      s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-      host = "127.0.0.1"
-      s.bind((host, port))           
+      #print(usersAndFiles)
+      #dbUpdater()
       s.listen(5)
       conn, addr = s.accept()  
-      print ('dispatcher Got connection from', addr)
-      data = conn.recv(1024)
+      print ('Dispatcher Got connection from', addr)
+      data = conn.recv(2024)
       dataObject = json.loads(data.decode('utf-8'))
       #print('Server received data ', repr(data))
       print('Server received dataObject', dataObject)
       if dataObject["command"] == 'hello':
+         if dataObject["client_name"] not in usersAndFiles:
+            usersAndFiles[dataObject["client_name"]] = []
+         command = {
+                "command": "hello",
+                "files_on_server": usersAndFiles[dataObject["client_name"]]
+         }
+         msg = json.dumps(command).encode('utf-8')
+         print('data=', (msg))
+         conn.sendall(msg)
+      elif dataObject["command"] == 'file_send_req':
+         print("received", dataObject)
          portForTransmission = getFreePortForTransmission()
          if portForTransmission != -1:
             command = {
-               "command" : "hello",
-               "port" : portForTransmission,
-               "files_on_server" : getFilesForClient(dataObject["client_name"])
-            }
-            dataObject["port"] = portForTransmission
+                     "command": "hello",
+                     "port": portForTransmission,
+                     "client_name": dataObject["client_name"],
+                     "file_name": dataObject["file_name"]
+                }
             msg = json.dumps(command).encode('utf-8')
             print('data=', (msg))
             conn.sendall(msg)
-            queue.put(dataObject)
+            queue.put(command)
          else:
-            print("Free port for conn not found")
+            print("All ports busy!")
       else:
-         print("Command not equal hello")
-         
+         print("Command not known!")
+      print("Done")
 
+def dbUpdater(event, lock):
+   while not event.is_set():
+      time.sleep(5)
+      print ("dbUpdater started!")
+      path = 'clients.csv'
+      with lock:
+         with open(path, 'wt') as f:
+            print ('file opened')
+            for key, values in usersAndFiles.items():
+               print(key, ":", values)
+               content = key + ","
+               for value in values:
+                  content = content + value + " "
+               print(content)
+               f.write(content + '\n')
+            f.flush()
+            print('Saved to file')
+
+   
 def getFilesForClient(client):
    path = 'clients.csv'
    lines = [line for line in open(path)]
@@ -134,8 +166,11 @@ if __name__ == "__main__":
    receiver = Receiver()
    pipeline = queue.Queue(maxsize=5)
    event = threading.Event()
-   with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+   with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
          executor.submit(dispatcher, pipeline, event)
-         executor.submit(receiver.receive, pipeline, event, lock)
+         executor.submit(receiver.receive, pipeline, event, lock, 1)
+         executor.submit(receiver.receive, pipeline, event, lock, 2)
+         executor.submit(receiver.receive, pipeline, event, lock, 3)
+         executor.submit(dbUpdater, event, lock)
    print('Main: about to set event')
 
