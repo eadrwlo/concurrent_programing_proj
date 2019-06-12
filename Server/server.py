@@ -120,8 +120,13 @@ def dbUpdater(event, lock):
             for key, values in usersAndFiles.items():
                print(key, ":", values)
                content = key + ","
+               i=0
                for value in values:
-                  content = content + value + " "
+                  if i < len(value):
+                     content = content + value + ","
+                  else:
+                     content = content + value
+                  i+=1
                print(content)
                f.write(content + '\n')
             f.flush()
@@ -142,9 +147,12 @@ def loadFilesDb():
    for line in lines:
       listOfFiles =  []
       clientAndFiles = line.strip().split(",")
-      #print (clientAndFiles[1].split(" "))
-      for filename in clientAndFiles[1].split(" "):
-         listOfFiles.append(filename)
+      print (clientAndFiles)
+      i = 0
+      for filename in clientAndFiles:
+         if i > 0:
+            listOfFiles.append(filename)
+         i += 1
       usersAndFiles[clientAndFiles[0]] = listOfFiles
    #print (usersAndFiles)
 
