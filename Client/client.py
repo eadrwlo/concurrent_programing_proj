@@ -54,8 +54,9 @@ while(1):
         f = open(fileToSend, 'rb')
         l = f.read(1024)
         while (l):
+            print ("Sending file with name = ", fileToSend, " ... ")
             sForFile.send(l)
             # print('Sent ',repr(l))
             l = f.read(1024)
         sForFile.close()
-    time.sleep(5)
+    time.sleep(10)

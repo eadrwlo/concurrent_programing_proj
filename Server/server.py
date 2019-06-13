@@ -7,13 +7,13 @@ import concurrent.futures
 import queue
 import csv
 import time
+import os
 
 ports = [50001, 50002, 50003, 50004, 50005]
 reservedPorts = []
 usersAndFiles = {}
 
 def getFreePortForTransmission():
-   foundFreePort = False
    selectedPort = -1
    for port in ports:
       if port not in reservedPorts:
@@ -23,7 +23,18 @@ def getFreePortForTransmission():
    return selectedPort
 
 class Receiver:
-   def receive(self, queue, event, lock, id):
+
+   def createDir(self, path):
+      if not os.path.exists(path):
+         os.mkdir(path)
+         print("Directory " , path ,  " created ")
+      else:
+         print("Directory ", path ,  " already exists")
+
+
+
+   def receive(self, queue, event, lock, id, path):
+      self.createDir(path)
       print ('Receiver ID= ', id, 'waiting for connections...')
       while not event.is_set():
          if not queue.empty():
@@ -41,6 +52,9 @@ class Receiver:
             #dataObject = json.loads(data.decode('utf-8'))
             #print (dataObject)
             fileName = dataObject["file_name"]
+            fileNameForSaveInDict = fileName
+            self.createDir(path + "\\" + dataObject["client_name"])
+            fileName = os.path.join(path, dataObject["client_name"], fileName)
             with open(fileName, 'wb') as f:
                print ('file opened')
                while True:
@@ -94,7 +108,7 @@ def dispatcher(queue, event):
          portForTransmission = getFreePortForTransmission()
          if portForTransmission != -1:
             command = {
-                     "command": "hello",
+                     "command": "file_send_accept",
                      "port": portForTransmission,
                      "client_name": dataObject["client_name"],
                      "file_name": dataObject["file_name"]
@@ -168,17 +182,18 @@ def addFileForClientToFilesDb(fileToAdd, clientName):
    f.close()
       
 if __name__ == "__main__":
-   #print (getFilesForClient("Jan"))
    lock = threading.Lock()
    loadFilesDb()
    receiver = Receiver()
-   pipeline = queue.Queue(maxsize=5)
+   pipeline = queue.Queue(maxsize=100)
    event = threading.Event()
-   with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-         executor.submit(dispatcher, pipeline, event)
-         executor.submit(receiver.receive, pipeline, event, lock, 1)
-         executor.submit(receiver.receive, pipeline, event, lock, 2)
-         executor.submit(receiver.receive, pipeline, event, lock, 3)
-         executor.submit(dbUpdater, event, lock)
+   with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+      executor.submit(dispatcher, pipeline, event)
+      executor.submit(receiver.receive, pipeline, event, lock, 1, "Folder1")
+      executor.submit(receiver.receive, pipeline, event, lock, 2, "Folder2")
+      executor.submit(receiver.receive, pipeline, event, lock, 3, "Folder3")
+      executor.submit(receiver.receive, pipeline, event, lock, 4, "Folder4")
+      executor.submit(receiver.receive, pipeline, event, lock, 5, "Folder5")
+      executor.submit(dbUpdater, event, lock)
    print('Main: about to set event')
 
